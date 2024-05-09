@@ -5,6 +5,7 @@ const SCHOOL_IDS = [
 	"U2Nob29sLTEzNDgz",
 	"U2Nob29sLTEzNjQ3",
 	"U2Nob29sLTE3MTA4",
+	"U2Nob29sLTE1NzIz",
 ];
 const PROFESSOR_ID = `
 query ($query: TeacherSearchQuery!) {
@@ -37,6 +38,51 @@ query ($id: ID!) {
     }
 }
 `;
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000; 
+
+const fetchProfIDFallbackLoop = async (profName, retryCount = 0) => {
+	try {
+		const raw_response = await fetch(
+			"https://www.ratemyprofessors.com/graphql",
+			{
+				method: "POST",
+				headers: {
+					Authorization: AUTHORIZATION_TOKEN,
+				},
+				body: JSON.stringify({
+					query: PROFESSOR_ID,
+					variables: {
+						query: { text: profName, schoolID: SCHOOL_ID },
+					},
+				}),
+			}
+		);
+
+		const response = await raw_response.json();
+		if (response.data && response.data.newSearch && response.data.newSearch.teachers && response.data.newSearch.teachers.edges && response.data.newSearch.teachers.edges.length > 0) {
+			return response; 
+		} else if (retryCount < MAX_RETRIES) {
+			console.log(`No matching professor found for "${profName}". Retrying (${retryCount + 1}/${MAX_RETRIES})...`);
+			await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS)); 
+			return fetchProfIDFallbackLoop(profName, retryCount + 1); 
+		} else {
+			console.error(`Maximum number of retries (${MAX_RETRIES}) exceeded for "${profName}".`);
+			return null; 
+		}
+	} catch (error) {
+		console.error(`Error fetching professor ID for "${profName}":`, error);
+		if (retryCount < MAX_RETRIES) {
+			console.log(`Retrying (${retryCount + 1}/${MAX_RETRIES})...`);
+			await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS)); 
+			return fetchProfIDFallbackLoop(profName, retryCount + 1); 
+		} else {
+			console.error(`Maximum number of retries (${MAX_RETRIES}) exceeded for "${profName}".`);
+			return null; 
+		}
+	}
+};
 
 const fetchProfIDFallbackLoop = (profName) => {
 	return new Promise(async (resolve, reject) => {
